@@ -19,11 +19,9 @@ interface PolymarketEvent {
         question: string;
         clobTokenIds?: string[];
         outcomes?: string[];
-        rewards?: {
-            rates?: {
-                rewards_daily_rate: number;
-            }[];
-        };
+        clobRewards?: {
+            rewardsDailyRate: number;
+        }[];
     }[];
 }
 
@@ -53,7 +51,7 @@ export function RewardCalculator() {
             console.log("Market Data received:", marketData);
 
             if (!marketData) {
-                throw new Error("Market not found or API error.");
+                throw new Error(`Market data not found for slug: ${slug}. Please check the URL.`);
             }
 
             const eventData = marketData as unknown as PolymarketEvent;
@@ -103,7 +101,8 @@ export function RewardCalculator() {
                     }
                     console.log("Orderbook received. Bids:", orderBook.bids?.length, "Asks:", orderBook.asks?.length);
 
-                    const dailyReward = market.rewards?.rates?.[0]?.rewards_daily_rate || 0;
+                    // Use clobRewards for daily rate
+                    const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
                     console.log("Daily Reward:", dailyReward);
 
                     const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
