@@ -170,8 +170,8 @@ export function RewardCalculator() {
                         const validBids = bids.filter(b => b.price >= minBidPrice);
                         const validAsks = asks.filter(a => a.price <= maxAskPrice);
 
-                        const depthBids = validBids.reduce((acc, order) => acc + order.size, 0);
-                        const depthAsks = validAsks.reduce((acc, order) => acc + order.size, 0);
+                        const depthBids = validBids.reduce((acc, order) => acc + (order.size * order.price), 0);
+                        const depthAsks = validAsks.reduce((acc, order) => acc + (order.size * order.price), 0);
                         const currentDepth = depthBids + depthAsks;
 
                         // Calculate share for this outcome
