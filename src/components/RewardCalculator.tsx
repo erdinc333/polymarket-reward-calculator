@@ -21,8 +21,8 @@ interface PolymarketEvent {
             token_id: string;
             outcome: string;
         }[];
-        rewards?: { // rewards can be optional
-            rates?: { // rates can be optional
+        rewards?: {
+            rates?: {
                 rewards_daily_rate: number;
             }[];
         };
@@ -41,37 +41,34 @@ export function RewardCalculator() {
         setError("");
         setResults([]);
 
+        console.log("Starting calculation...");
+
         try {
-            // Extract slug from URL
-            // Example: https://polymarket.com/event/presidential-election-winner-2024
             const match = url.match(/event\/([^\/]+)/);
             if (!match) {
                 throw new Error("Invalid Polymarket URL. Please use an event URL (e.g., https://polymarket.com/event/slug)");
             }
             const slug = match[1];
+            console.log("Slug extracted:", slug);
 
             const marketData = await getMarket(slug);
+            console.log("Market Data received:", marketData);
+
             if (!marketData) {
                 throw new Error("Market not found or API error.");
             }
 
-            // Cast to our defined event type
             const eventData = marketData as unknown as PolymarketEvent;
             let markets = eventData.markets || [];
+            console.log("Initial markets array:", markets);
 
             if (markets.length === 0) {
-                // Fallback: if the API returns a single market object instead of an event with markets
-                // Check if the root object itself looks like a market.
-                // We cast to unknown first to avoid 'any' lint error, then to a shape we can check.
                 const potentialMarket = marketData as unknown as { question?: string; tokens?: unknown[] };
-
                 if (potentialMarket.question && potentialMarket.tokens) {
-                    // We need to cast it to the type expected by the markets array
-                    // The Market interface from lib/polymarket is compatible enough for our usage here
-                    // but we need to ensure it matches the structure we iterate over.
-                    // Let's just cast it to the type of an item in the markets array.
                     markets = [marketData as unknown as PolymarketEvent['markets'][0]];
+                    console.log("Using root object as market:", markets);
                 } else {
+                    console.error("No markets found in data structure");
                     throw new Error("No active markets found for this event.");
                 }
             }
@@ -84,18 +81,29 @@ export function RewardCalculator() {
             }
 
             for (const market of markets) {
-                const token = market.tokens?.[0]; // Usually YES or NO
-                if (!token) continue;
+                console.log("Processing market:", market.question);
+                const token = market.tokens?.[0];
+                if (!token) {
+                    console.log("No token found for market:", market.question);
+                    continue;
+                }
+                console.log("Token found:", token.token_id);
 
                 const orderBook = await getOrderBook(token.token_id);
-                if (!orderBook) continue;
+                if (!orderBook) {
+                    console.log("No orderbook found for token:", token.token_id);
+                    continue;
+                }
+                console.log("Orderbook received. Bids:", orderBook.bids?.length, "Asks:", orderBook.asks?.length);
 
                 const dailyReward = market.rewards?.rates?.[0]?.rewards_daily_rate || 0;
+                console.log("Daily Reward:", dailyReward);
 
-                const bids = orderBook.bids.map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
-                const asks = orderBook.asks.map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
+                const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
+                const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
 
                 const currentDepth = [...bids.slice(0, 5), ...asks.slice(0, 5)].reduce((acc, order) => acc + order.size, 0);
+                console.log("Current Depth:", currentDepth);
 
                 const userShare = investment / (currentDepth + investment);
                 const estimatedReward = dailyReward * userShare;
@@ -110,9 +118,11 @@ export function RewardCalculator() {
                 });
             }
 
+            console.log("Final Results:", calculatedResults);
             setResults(calculatedResults);
 
         } catch (err: unknown) {
+            console.error("Error in calculation:", err);
             const errorMessage = err instanceof Error ? err.message : "An error occurred";
             setError(errorMessage);
         } finally {
