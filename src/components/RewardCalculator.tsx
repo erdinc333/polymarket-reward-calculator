@@ -116,23 +116,53 @@ export function RewardCalculator() {
                     const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
                     console.log("Daily Reward:", dailyReward);
 
+                    // Calculate rewards for different spreads
+                    const spreads = [
+                        { label: "+/- 1%", percent: 0.01 },
+                        { label: "+/- 2%", percent: 0.02 },
+                        { label: "+/- 3%", percent: 0.03 }
+                    ];
+
+                    // Parse bids/asks
                     const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
                     const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
 
-                    const currentDepth = [...bids.slice(0, 5), ...asks.slice(0, 5)].reduce((acc, order) => acc + order.size, 0);
-                    console.log("Current Depth:", currentDepth);
+                    // Find mid price (simplified: average of best bid and best ask)
+                    const bestBid = bids.length > 0 ? bids[0].price : 0;
+                    const bestAsk = asks.length > 0 ? asks[0].price : 0;
+                    const midPrice = (bestBid + bestAsk) / 2;
 
-                    const userShare = investment / (currentDepth + investment);
-                    const estimatedReward = dailyReward * userShare;
+                    console.log(`Mid Price for ${outcome}: ${midPrice}`);
 
-                    calculatedResults.push({
-                        question: market.question,
-                        outcome: outcome,
-                        currentDepth,
-                        estimatedReward,
-                        dailyRewardPool: dailyReward,
-                        spread: "Top 5 levels"
-                    });
+                    for (const spread of spreads) {
+                        // Calculate depth within spread
+                        // For bids: price >= midPrice * (1 - spread)
+                        // For asks: price <= midPrice * (1 + spread)
+
+                        const minBidPrice = midPrice * (1 - spread.percent);
+                        const maxAskPrice = midPrice * (1 + spread.percent);
+
+                        const validBids = bids.filter(b => b.price >= minBidPrice);
+                        const validAsks = asks.filter(a => a.price <= maxAskPrice);
+
+                        const depthBids = validBids.reduce((acc, order) => acc + order.size, 0);
+                        const depthAsks = validAsks.reduce((acc, order) => acc + order.size, 0);
+                        const currentDepth = depthBids + depthAsks;
+
+                        console.log(`Depth at ${spread.label}: ${currentDepth} (Bids: ${depthBids}, Asks: ${depthAsks})`);
+
+                        const userShare = investment / (currentDepth + investment);
+                        const estimatedReward = dailyReward * userShare;
+
+                        calculatedResults.push({
+                            question: market.question,
+                            outcome: outcome,
+                            currentDepth,
+                            estimatedReward,
+                            dailyRewardPool: dailyReward,
+                            spread: spread.label
+                        });
+                    }
                 }
             }
 
