@@ -40,7 +40,10 @@ export function RewardCalculator() {
         console.log("Starting calculation...");
 
         try {
-            const match = url.match(/event\/([^\/]+)/);
+            // Extract slug from URL
+            // Example: https://polymarket.com/event/presidential-election-winner-2024
+            // Handle URLs with query parameters like ?tid=...
+            const match = url.match(/event\/([^\/\?]+)/);
             if (!match) {
                 throw new Error("Invalid Polymarket URL. Please use an event URL (e.g., https://polymarket.com/event/slug)");
             }
