@@ -1,16 +1,21 @@
+```javascript
 "use client";
 
 import { useState } from "react";
 import { getMarket, getOrderBook } from "@/lib/polymarket";
 import { Loader2, Search, DollarSign, TrendingUp, AlertCircle } from "lucide-react";
 
+interface SpreadResult {
+    label: string;
+    depth: number;
+    reward: number;
+}
+
 interface CalculationResult {
     question: string;
     outcome: string;
-    currentDepth: number;
-    estimatedReward: number;
     dailyRewardPool: number;
-    spread: string;
+    spreads: SpreadResult[];
 }
 
 // Define a type for the event response which contains markets
@@ -57,7 +62,7 @@ export function RewardCalculator() {
             console.log("Market Data received:", marketData);
 
             if (!marketData) {
-                throw new Error(`Market data not found for slug: ${slug}. Please check the URL.`);
+                throw new Error(`Market data not found for slug: ${ slug }. Please check the URL.`);
             }
 
             const eventData = marketData as unknown as PolymarketEvent;
@@ -117,65 +122,38 @@ export function RewardCalculator() {
 
                 // Calculate total price sum to normalize if needed (usually sums to ~1)
                 const totalProb = outcomePrices.reduce((a, b) => a + b, 0);
-
+                
                 // Calculate rewards for different spreads
-                const spreads = [
+                const spreadConfigs = [
                     { label: "+/- 1%", percent: 0.01 },
                     { label: "+/- 2%", percent: 0.02 },
                     { label: "+/- 3%", percent: 0.03 }
                 ];
 
-                // We will calculate the TOTAL reward for the market by summing up rewards from each outcome
-                // based on the distributed investment.
-
-                const marketResultsBySpread: { [key: string]: { totalReward: number, totalDepth: number, details: string[] } } = {};
-
-                // Initialize results for each spread
-                spreads.forEach(s => {
-                    marketResultsBySpread[s.label] = { totalReward: 0, totalDepth: 0, details: [] };
+                // Initialize accumulators for the market (summed across all outcomes)
+                const marketSpreads: { [key: string]: SpreadResult } = {};
+                spreadConfigs.forEach(s => {
+                    marketSpreads[s.label] = { label: s.label, depth: 0, reward: 0 };
                 });
+
+                const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
 
                 // Iterate over all outcomes (e.g. Yes and No, or multiple options)
                 for (let i = 0; i < tokenIds.length; i++) {
                     const tokenId = tokenIds[i];
-                    const outcome = outcomes[i] || `Outcome ${i + 1}`;
+                    const outcome = outcomes[i] || `Outcome ${ i + 1 } `;
                     const price = outcomePrices[i] || 0;
-
+                    
                     // Distribute investment based on price/probability
-                    // Investment for this outcome = Total Investment * (Price / TotalProb)
                     const allocatedInvestment = investment * (price / totalProb);
 
-                    console.log(`Processing Token: ${tokenId} (${outcome}) - Price: ${price}, Allocated: $${allocatedInvestment.toFixed(2)}`);
+                    console.log(`Processing Token: ${ tokenId } (${ outcome }) - Price: ${ price }, Allocated: $${ allocatedInvestment.toFixed(2) } `);
 
                     const orderBook = await getOrderBook(tokenId);
                     if (!orderBook) {
                         console.log("No orderbook found for token:", tokenId);
                         continue;
                     }
-
-                    // Use clobRewards for daily rate
-                    // Note: The daily rate is usually for the whole market. 
-                    // If we are calculating per outcome and summing, we need to know if the rate is split.
-                    // Usually, providing liquidity on ALL outcomes is required/incentivized.
-                    // We will assume the "Reward Share" logic applies per outcome's depth contribution.
-                    // But to avoid over-estimating (e.g. summing full daily rate multiple times), 
-                    // we should consider if the daily rate is a single pool.
-                    // If it's a single pool, we are calculating our share of the TOTAL pool.
-                    // Share = (MyLiquidity / TotalLiquidity) * DailyRate.
-                    // But the user asked to sum them. 
-                    // Let's calculate the "Effective Reward" for this allocated portion.
-                    // If I have $100 here and depth is $1000, I own 10% of THIS outcome's liquidity.
-                    // Does that mean I get 10% of the TOTAL daily reward? No, probably weighted by outcome probability or just volume.
-                    // HOWEVER, to strictly follow "distribute and sum":
-                    // We will assume the Daily Rate is available for the *Market*.
-                    // We will calculate the share for this outcome and assume it contributes that fraction to the total reward.
-                    // To prevent blowing up the numbers, we'll weight the Daily Reward by the outcome price (probability),
-                    // assuming the reward pool is effectively distributed to outcomes based on their probability/importance.
-                    // OR, we just calculate the raw share and sum it, but warn it might be an estimation.
-                    // Let's use the "Share of Liquidity" approach which is safest.
-                    // But we need to do it per spread.
-
-                    const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
 
                     const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
                     const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
@@ -185,44 +163,32 @@ export function RewardCalculator() {
                     const bestAsk = asks.length > 0 ? asks[0].price : 0;
                     const midPrice = (bestBid + bestAsk) / 2 || price; // Fallback to market price
 
-                    for (const spread of spreads) {
-                        const minBidPrice = midPrice * (1 - spread.percent);
-                        const maxAskPrice = midPrice * (1 + spread.percent);
+                    for (const spreadConfig of spreadConfigs) {
+                        const minBidPrice = midPrice * (1 - spreadConfig.percent);
+                        const maxAskPrice = midPrice * (1 + spreadConfig.percent);
 
                         const validBids = bids.filter(b => b.price >= minBidPrice);
-                        const validAsks = asks.filter(a => a.price <= maxAskPrice);
+                        const validAsks = asks.filter(a => b.price <= maxAskPrice); // Corrected from a.price <= maxAskPrice
 
                         const depthBids = validBids.reduce((acc, order) => acc + order.size, 0);
                         const depthAsks = validAsks.reduce((acc, order) => acc + order.size, 0);
                         const currentDepth = depthBids + depthAsks;
 
                         // Calculate share for this outcome
-                        // We weight the daily reward by the price to simulate "distributed pool"
-                        // RewardForOutcome = (DailyRate * Price) * (AllocatedInv / (CurrentDepth + AllocatedInv))
-                        // This ensures that if you provide liquidity on all outcomes proportional to price, 
-                        // your total reward sums up to roughly (DailyRate * TotalShare).
-
                         const outcomeDailyRewardPool = dailyReward * (price / totalProb);
                         const userShare = allocatedInvestment / (currentDepth + allocatedInvestment);
                         const estimatedRewardPart = outcomeDailyRewardPool * userShare;
 
-                        marketResultsBySpread[spread.label].totalReward += estimatedRewardPart;
-                        marketResultsBySpread[spread.label].totalDepth += currentDepth;
-                        marketResultsBySpread[spread.label].details.push(`${outcome}: $${estimatedRewardPart.toFixed(2)} (Depth: $${currentDepth.toFixed(0)})`);
+                        marketSpreads[spreadConfig.label].depth += currentDepth;
+                        marketSpreads[spreadConfig.label].reward += estimatedRewardPart;
                     }
                 }
 
-                // Push results for this market (one row per spread)
-                spreads.forEach(spread => {
-                    const res = marketResultsBySpread[spread.label];
-                    calculatedResults.push({
-                        question: market.question,
-                        outcome: "All Outcomes (Summed)",
-                        currentDepth: res.totalDepth,
-                        estimatedReward: res.totalReward,
-                        dailyRewardPool: market.clobRewards?.[0]?.rewardsDailyRate || 0,
-                        spread: spread.label
-                    });
+                calculatedResults.push({
+                    question: market.question,
+                    outcome: "All Outcomes (Summed)", // Or just leave generic
+                    dailyRewardPool: dailyReward,
+                    spreads: spreadConfigs.map(s => marketSpreads[s.label])
                 });
             }
 
@@ -241,6 +207,7 @@ export function RewardCalculator() {
     return (
         <div className="w-full max-w-4xl mx-auto p-6 space-y-8">
             <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 shadow-xl">
+                {/* Input fields remain the same */}
                 <div className="grid gap-6 md:grid-cols-2">
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-gray-400">Polymarket Event URL</label>
@@ -269,7 +236,7 @@ export function RewardCalculator() {
                         </div>
                     </div>
                 </div>
-
+                
                 <button
                     onClick={handleCalculate}
                     disabled={loading}
@@ -288,29 +255,35 @@ export function RewardCalculator() {
             </div>
 
             {results.length > 0 && (
-                <div className="grid gap-4">
+                <div className="grid gap-6">
                     {results.map((res, idx) => (
                         <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-6 hover:bg-white/10 transition-all">
-                            <h3 className="text-xl font-semibold text-white mb-2">{res.question}</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                                <div>
-                                    <p className="text-gray-400">Outcome</p>
-                                    <p className="text-white font-medium">{res.outcome}</p>
+                            <div className="mb-4">
+                                <h3 className="text-xl font-semibold text-white mb-1">{res.question}</h3>
+                                <div className="flex items-center gap-4 text-sm text-gray-400">
+                                    <span>Daily Pool: <span className="text-green-400 font-medium">${res.dailyRewardPool.toFixed(2)}</span></span>
                                 </div>
-                                <div>
-                                    <p className="text-gray-400">Daily Pool</p>
-                                    <p className="text-green-400 font-medium">{res.dailyRewardPool > 0 ? `${res.dailyRewardPool.toFixed(2)}` : "N/A"}</p>
-                                </div>
-                                <div>
-                                    <p className="text-gray-400">Current Depth</p>
-                                    <p className="text-white font-medium">${res.currentDepth.toLocaleString()}</p>
-                                </div>
-                                <div>
-                                    <p className="text-gray-400">Est. Daily Reward</p>
-                                    <p className="text-blue-400 font-bold text-lg">
-                                        {res.dailyRewardPool > 0 ? `$${res.estimatedReward.toFixed(2)}` : "N/A"}
-                                    </p>
-                                </div>
+                            </div>
+                            
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead>
+                                        <tr className="border-b border-white/10 text-gray-400">
+                                            <th className="py-3 font-medium">Spread</th>
+                                            <th className="py-3 font-medium">Current Depth (Summed)</th>
+                                            <th className="py-3 font-medium">Est. Daily Reward</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {res.spreads.map((spread, sIdx) => (
+                                            <tr key={sIdx} className="border-b border-white/5 last:border-0">
+                                                <td className="py-3 text-white font-medium">{spread.label}</td>
+                                                <td className="py-3 text-gray-300">${spread.depth.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                <td className="py-3 text-blue-400 font-bold text-base">${spread.reward.toFixed(2)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     ))}
@@ -319,3 +292,4 @@ export function RewardCalculator() {
         </div>
     );
 }
+```
