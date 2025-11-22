@@ -19,6 +19,7 @@ interface PolymarketEvent {
         question: string;
         clobTokenIds?: string[] | string;
         outcomes?: string[] | string;
+        outcomePrices?: string[] | string;
         clobRewards?: {
             rewardsDailyRate: number;
         }[];
@@ -43,6 +44,8 @@ export function RewardCalculator() {
             // Extract slug from URL
             // Example: https://polymarket.com/event/presidential-election-winner-2024
             // Handle URLs with query parameters like ?tid=...
+            // Also handle URLs that might end with a slash or have other segments
+            // We want the segment after /event/ and before any ? or /
             const match = url.match(/event\/([^\/\?]+)/);
             if (!match) {
                 throw new Error("Invalid Polymarket URL. Please use an event URL (e.g., https://polymarket.com/event/slug)");
@@ -98,47 +101,91 @@ export function RewardCalculator() {
                     continue;
                 }
 
-                // Iterate over all outcomes (e.g. Yes and No)
+                // Parse outcome prices
+                let outcomePrices: number[] = [];
+                if (typeof market.outcomePrices === 'string') {
+                    try { outcomePrices = JSON.parse(market.outcomePrices).map((p: string) => parseFloat(p)); } catch (e) { console.error("Failed to parse outcomePrices", e); }
+                } else if (Array.isArray(market.outcomePrices)) {
+                    outcomePrices = market.outcomePrices.map((p: any) => parseFloat(p));
+                }
+
+                // If no prices found, assume equal distribution
+                if (outcomePrices.length !== tokenIds.length) {
+                    console.log("Outcome prices mismatch or missing, assuming equal split");
+                    outcomePrices = new Array(tokenIds.length).fill(1 / tokenIds.length);
+                }
+
+                // Calculate total price sum to normalize if needed (usually sums to ~1)
+                const totalProb = outcomePrices.reduce((a, b) => a + b, 0);
+
+                // Calculate rewards for different spreads
+                const spreads = [
+                    { label: "+/- 1%", percent: 0.01 },
+                    { label: "+/- 2%", percent: 0.02 },
+                    { label: "+/- 3%", percent: 0.03 }
+                ];
+
+                // We will calculate the TOTAL reward for the market by summing up rewards from each outcome
+                // based on the distributed investment.
+
+                const marketResultsBySpread: { [key: string]: { totalReward: number, totalDepth: number, details: string[] } } = {};
+
+                // Initialize results for each spread
+                spreads.forEach(s => {
+                    marketResultsBySpread[s.label] = { totalReward: 0, totalDepth: 0, details: [] };
+                });
+
+                // Iterate over all outcomes (e.g. Yes and No, or multiple options)
                 for (let i = 0; i < tokenIds.length; i++) {
                     const tokenId = tokenIds[i];
                     const outcome = outcomes[i] || `Outcome ${i + 1}`;
+                    const price = outcomePrices[i] || 0;
 
-                    console.log(`Processing Token: ${tokenId} (${outcome})`);
+                    // Distribute investment based on price/probability
+                    // Investment for this outcome = Total Investment * (Price / TotalProb)
+                    const allocatedInvestment = investment * (price / totalProb);
+
+                    console.log(`Processing Token: ${tokenId} (${outcome}) - Price: ${price}, Allocated: $${allocatedInvestment.toFixed(2)}`);
 
                     const orderBook = await getOrderBook(tokenId);
                     if (!orderBook) {
                         console.log("No orderbook found for token:", tokenId);
                         continue;
                     }
-                    console.log("Orderbook received. Bids:", orderBook.bids?.length, "Asks:", orderBook.asks?.length);
 
                     // Use clobRewards for daily rate
+                    // Note: The daily rate is usually for the whole market. 
+                    // If we are calculating per outcome and summing, we need to know if the rate is split.
+                    // Usually, providing liquidity on ALL outcomes is required/incentivized.
+                    // We will assume the "Reward Share" logic applies per outcome's depth contribution.
+                    // But to avoid over-estimating (e.g. summing full daily rate multiple times), 
+                    // we should consider if the daily rate is a single pool.
+                    // If it's a single pool, we are calculating our share of the TOTAL pool.
+                    // Share = (MyLiquidity / TotalLiquidity) * DailyRate.
+                    // But the user asked to sum them. 
+                    // Let's calculate the "Effective Reward" for this allocated portion.
+                    // If I have $100 here and depth is $1000, I own 10% of THIS outcome's liquidity.
+                    // Does that mean I get 10% of the TOTAL daily reward? No, probably weighted by outcome probability or just volume.
+                    // HOWEVER, to strictly follow "distribute and sum":
+                    // We will assume the Daily Rate is available for the *Market*.
+                    // We will calculate the share for this outcome and assume it contributes that fraction to the total reward.
+                    // To prevent blowing up the numbers, we'll weight the Daily Reward by the outcome price (probability),
+                    // assuming the reward pool is effectively distributed to outcomes based on their probability/importance.
+                    // OR, we just calculate the raw share and sum it, but warn it might be an estimation.
+                    // Let's use the "Share of Liquidity" approach which is safest.
+                    // But we need to do it per spread.
+
                     const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
-                    console.log("Daily Reward:", dailyReward);
 
-                    // Calculate rewards for different spreads
-                    const spreads = [
-                        { label: "+/- 1%", percent: 0.01 },
-                        { label: "+/- 2%", percent: 0.02 },
-                        { label: "+/- 3%", percent: 0.03 }
-                    ];
-
-                    // Parse bids/asks
                     const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
                     const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
 
-                    // Find mid price (simplified: average of best bid and best ask)
+                    // Find mid price
                     const bestBid = bids.length > 0 ? bids[0].price : 0;
                     const bestAsk = asks.length > 0 ? asks[0].price : 0;
-                    const midPrice = (bestBid + bestAsk) / 2;
-
-                    console.log(`Mid Price for ${outcome}: ${midPrice}`);
+                    const midPrice = (bestBid + bestAsk) / 2 || price; // Fallback to market price
 
                     for (const spread of spreads) {
-                        // Calculate depth within spread
-                        // For bids: price >= midPrice * (1 - spread)
-                        // For asks: price <= midPrice * (1 + spread)
-
                         const minBidPrice = midPrice * (1 - spread.percent);
                         const maxAskPrice = midPrice * (1 + spread.percent);
 
@@ -149,21 +196,34 @@ export function RewardCalculator() {
                         const depthAsks = validAsks.reduce((acc, order) => acc + order.size, 0);
                         const currentDepth = depthBids + depthAsks;
 
-                        console.log(`Depth at ${spread.label}: ${currentDepth} (Bids: ${depthBids}, Asks: ${depthAsks})`);
+                        // Calculate share for this outcome
+                        // We weight the daily reward by the price to simulate "distributed pool"
+                        // RewardForOutcome = (DailyRate * Price) * (AllocatedInv / (CurrentDepth + AllocatedInv))
+                        // This ensures that if you provide liquidity on all outcomes proportional to price, 
+                        // your total reward sums up to roughly (DailyRate * TotalShare).
 
-                        const userShare = investment / (currentDepth + investment);
-                        const estimatedReward = dailyReward * userShare;
+                        const outcomeDailyRewardPool = dailyReward * (price / totalProb);
+                        const userShare = allocatedInvestment / (currentDepth + allocatedInvestment);
+                        const estimatedRewardPart = outcomeDailyRewardPool * userShare;
 
-                        calculatedResults.push({
-                            question: market.question,
-                            outcome: outcome,
-                            currentDepth,
-                            estimatedReward,
-                            dailyRewardPool: dailyReward,
-                            spread: spread.label
-                        });
+                        marketResultsBySpread[spread.label].totalReward += estimatedRewardPart;
+                        marketResultsBySpread[spread.label].totalDepth += currentDepth;
+                        marketResultsBySpread[spread.label].details.push(`${outcome}: $${estimatedRewardPart.toFixed(2)} (Depth: $${currentDepth.toFixed(0)})`);
                     }
                 }
+
+                // Push results for this market (one row per spread)
+                spreads.forEach(spread => {
+                    const res = marketResultsBySpread[spread.label];
+                    calculatedResults.push({
+                        question: market.question,
+                        outcome: "All Outcomes (Summed)",
+                        currentDepth: res.totalDepth,
+                        estimatedReward: res.totalReward,
+                        dailyRewardPool: market.clobRewards?.[0]?.rewardsDailyRate || 0,
+                        spread: spread.label
+                    });
+                });
             }
 
             console.log("Final Results:", calculatedResults);
