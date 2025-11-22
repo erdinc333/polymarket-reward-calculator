@@ -17,10 +17,8 @@ interface CalculationResult {
 interface PolymarketEvent {
     markets: {
         question: string;
-        tokens: {
-            token_id: string;
-            outcome: string;
-        }[];
+        clobTokenIds?: string[];
+        outcomes?: string[];
         rewards?: {
             rates?: {
                 rewards_daily_rate: number;
@@ -63,8 +61,8 @@ export function RewardCalculator() {
             console.log("Initial markets array:", markets);
 
             if (markets.length === 0) {
-                const potentialMarket = marketData as unknown as { question?: string; tokens?: unknown[] };
-                if (potentialMarket.question && potentialMarket.tokens) {
+                const potentialMarket = marketData as unknown as { question?: string; clobTokenIds?: unknown[] };
+                if (potentialMarket.question && potentialMarket.clobTokenIds) {
                     markets = [marketData as unknown as PolymarketEvent['markets'][0]];
                     console.log("Using root object as market:", markets);
                 } else {
@@ -82,40 +80,50 @@ export function RewardCalculator() {
 
             for (const market of markets) {
                 console.log("Processing market:", market.question);
-                const token = market.tokens?.[0];
-                if (!token) {
-                    console.log("No token found for market:", market.question);
+
+                const tokenIds = market.clobTokenIds || [];
+                const outcomes = market.outcomes || [];
+
+                if (tokenIds.length === 0) {
+                    console.log("No clobTokenIds found for market:", market.question);
                     continue;
                 }
-                console.log("Token found:", token.token_id);
 
-                const orderBook = await getOrderBook(token.token_id);
-                if (!orderBook) {
-                    console.log("No orderbook found for token:", token.token_id);
-                    continue;
+                // Iterate over all outcomes (e.g. Yes and No)
+                for (let i = 0; i < tokenIds.length; i++) {
+                    const tokenId = tokenIds[i];
+                    const outcome = outcomes[i] || `Outcome ${i + 1}`;
+
+                    console.log(`Processing Token: ${tokenId} (${outcome})`);
+
+                    const orderBook = await getOrderBook(tokenId);
+                    if (!orderBook) {
+                        console.log("No orderbook found for token:", tokenId);
+                        continue;
+                    }
+                    console.log("Orderbook received. Bids:", orderBook.bids?.length, "Asks:", orderBook.asks?.length);
+
+                    const dailyReward = market.rewards?.rates?.[0]?.rewards_daily_rate || 0;
+                    console.log("Daily Reward:", dailyReward);
+
+                    const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
+                    const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
+
+                    const currentDepth = [...bids.slice(0, 5), ...asks.slice(0, 5)].reduce((acc, order) => acc + order.size, 0);
+                    console.log("Current Depth:", currentDepth);
+
+                    const userShare = investment / (currentDepth + investment);
+                    const estimatedReward = dailyReward * userShare;
+
+                    calculatedResults.push({
+                        question: market.question,
+                        outcome: outcome,
+                        currentDepth,
+                        estimatedReward,
+                        dailyRewardPool: dailyReward,
+                        spread: "Top 5 levels"
+                    });
                 }
-                console.log("Orderbook received. Bids:", orderBook.bids?.length, "Asks:", orderBook.asks?.length);
-
-                const dailyReward = market.rewards?.rates?.[0]?.rewards_daily_rate || 0;
-                console.log("Daily Reward:", dailyReward);
-
-                const bids = (orderBook.bids || []).map(b => ({ price: parseFloat(b.price), size: parseFloat(b.size) }));
-                const asks = (orderBook.asks || []).map(a => ({ price: parseFloat(a.price), size: parseFloat(a.size) }));
-
-                const currentDepth = [...bids.slice(0, 5), ...asks.slice(0, 5)].reduce((acc, order) => acc + order.size, 0);
-                console.log("Current Depth:", currentDepth);
-
-                const userShare = investment / (currentDepth + investment);
-                const estimatedReward = dailyReward * userShare;
-
-                calculatedResults.push({
-                    question: market.question,
-                    outcome: token.outcome,
-                    currentDepth,
-                    estimatedReward,
-                    dailyRewardPool: dailyReward,
-                    spread: "Top 5 levels"
-                });
             }
 
             console.log("Final Results:", calculatedResults);
