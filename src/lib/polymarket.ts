@@ -27,8 +27,13 @@ const CLOB_API_URL = "/api/orderbook";
 
 export async function getMarket(slug: string): Promise<Market | null> {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
         // Fetch from our local proxy
-        const response = await fetch(`${GAMMA_API_URL}?slug=${slug}`);
+        const response = await fetch(`${GAMMA_API_URL}?slug=${slug}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!response.ok) throw new Error("Failed to fetch market");
         const data = await response.json();
         // The proxy returns the raw array from gamma-api
@@ -46,8 +51,13 @@ export async function getMarket(slug: string): Promise<Market | null> {
 
 export async function getOrderBook(tokenId: string): Promise<OrderBook | null> {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
         // Fetch from our local proxy
-        const response = await fetch(`${CLOB_API_URL}?token_id=${tokenId}`);
+        const response = await fetch(`${CLOB_API_URL}?token_id=${tokenId}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!response.ok) throw new Error("Failed to fetch order book");
         const data = await response.json();
         return data;
