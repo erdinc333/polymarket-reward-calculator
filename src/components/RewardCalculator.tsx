@@ -1,4 +1,4 @@
-```javascript
+
 "use client";
 
 import { useState } from "react";
@@ -62,7 +62,7 @@ export function RewardCalculator() {
             console.log("Market Data received:", marketData);
 
             if (!marketData) {
-                throw new Error(`Market data not found for slug: ${ slug }. Please check the URL.`);
+                throw new Error(`Market data not found for slug: ${slug}. Please check the URL.`);
             }
 
             const eventData = marketData as unknown as PolymarketEvent;
@@ -122,7 +122,7 @@ export function RewardCalculator() {
 
                 // Calculate total price sum to normalize if needed (usually sums to ~1)
                 const totalProb = outcomePrices.reduce((a, b) => a + b, 0);
-                
+
                 // Calculate rewards for different spreads
                 const spreadConfigs = [
                     { label: "+/- 1%", percent: 0.01 },
@@ -141,13 +141,13 @@ export function RewardCalculator() {
                 // Iterate over all outcomes (e.g. Yes and No, or multiple options)
                 for (let i = 0; i < tokenIds.length; i++) {
                     const tokenId = tokenIds[i];
-                    const outcome = outcomes[i] || `Outcome ${ i + 1 } `;
+                    const outcome = outcomes[i] || `Outcome ${i + 1} `;
                     const price = outcomePrices[i] || 0;
-                    
+
                     // Distribute investment based on price/probability
                     const allocatedInvestment = investment * (price / totalProb);
 
-                    console.log(`Processing Token: ${ tokenId } (${ outcome }) - Price: ${ price }, Allocated: $${ allocatedInvestment.toFixed(2) } `);
+                    console.log(`Processing Token: ${tokenId} (${outcome}) - Price: ${price}, Allocated: $${allocatedInvestment.toFixed(2)} `);
 
                     const orderBook = await getOrderBook(tokenId);
                     if (!orderBook) {
@@ -236,7 +236,7 @@ export function RewardCalculator() {
                         </div>
                     </div>
                 </div>
-                
+
                 <button
                     onClick={handleCalculate}
                     disabled={loading}
@@ -264,7 +264,7 @@ export function RewardCalculator() {
                                     <span>Daily Pool: <span className="text-green-400 font-medium">${res.dailyRewardPool.toFixed(2)}</span></span>
                                 </div>
                             </div>
-                            
+
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-sm">
                                     <thead>
@@ -292,4 +292,4 @@ export function RewardCalculator() {
         </div>
     );
 }
-```
+
