@@ -168,7 +168,7 @@ export function RewardCalculator() {
                         const maxAskPrice = midPrice * (1 + spreadConfig.percent);
 
                         const validBids = bids.filter(b => b.price >= minBidPrice);
-                        const validAsks = asks.filter(a => b.price <= maxAskPrice); // Corrected from a.price <= maxAskPrice
+                        const validAsks = asks.filter(a => a.price <= maxAskPrice);
 
                         const depthBids = validBids.reduce((acc, order) => acc + order.size, 0);
                         const depthAsks = validAsks.reduce((acc, order) => acc + order.size, 0);
