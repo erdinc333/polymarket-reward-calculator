@@ -17,8 +17,8 @@ interface CalculationResult {
 interface PolymarketEvent {
     markets: {
         question: string;
-        clobTokenIds?: string[];
-        outcomes?: string[];
+        clobTokenIds?: string[] | string;
+        outcomes?: string[] | string;
         clobRewards?: {
             rewardsDailyRate: number;
         }[];
@@ -82,8 +82,16 @@ export function RewardCalculator() {
             for (const market of markets) {
                 console.log("Processing market:", market.question);
 
-                const tokenIds = market.clobTokenIds || [];
-                const outcomes = market.outcomes || [];
+                let tokenIds = market.clobTokenIds || [];
+                let outcomes = market.outcomes || [];
+
+                // Parse if they are strings (API sometimes returns JSON stringified arrays)
+                if (typeof tokenIds === 'string') {
+                    try { tokenIds = JSON.parse(tokenIds); } catch (e) { console.error("Failed to parse tokenIds", e); tokenIds = []; }
+                }
+                if (typeof outcomes === 'string') {
+                    try { outcomes = JSON.parse(outcomes); } catch (e) { console.error("Failed to parse outcomes", e); outcomes = []; }
+                }
 
                 if (tokenIds.length === 0) {
                     console.log("No clobTokenIds found for market:", market.question);
