@@ -8,6 +8,8 @@ import { Loader2, Search, DollarSign, TrendingUp, AlertCircle } from "lucide-rea
 interface SpreadResult {
     label: string;
     depth: number;
+    bidDepth: number;
+    askDepth: number;
     reward: number;
 }
 
@@ -133,7 +135,7 @@ export function RewardCalculator() {
                 // Initialize accumulators for the market (summed across all outcomes)
                 const marketSpreads: { [key: string]: SpreadResult } = {};
                 spreadConfigs.forEach(s => {
-                    marketSpreads[s.label] = { label: s.label, depth: 0, reward: 0 };
+                    marketSpreads[s.label] = { label: s.label, depth: 0, bidDepth: 0, askDepth: 0, reward: 0 };
                 });
 
                 const dailyReward = market.clobRewards?.[0]?.rewardsDailyRate || 0;
@@ -182,6 +184,8 @@ export function RewardCalculator() {
                         const estimatedRewardPart = outcomeDailyRewardPool * userShare;
 
                         marketSpreads[spreadConfig.label].depth += currentDepth;
+                        marketSpreads[spreadConfig.label].bidDepth += depthBids;
+                        marketSpreads[spreadConfig.label].askDepth += depthAsks;
                         marketSpreads[spreadConfig.label].reward += estimatedRewardPart;
                     }
                 }
@@ -272,7 +276,9 @@ export function RewardCalculator() {
                                     <thead>
                                         <tr className="border-b border-white/10 text-gray-400">
                                             <th className="py-3 font-medium">Spread</th>
-                                            <th className="py-3 font-medium">Current Depth (Summed)</th>
+                                            <th className="py-3 font-medium">Bids Depth</th>
+                                            <th className="py-3 font-medium">Asks Depth</th>
+                                            <th className="py-3 font-medium">Total Depth</th>
                                             <th className="py-3 font-medium">Est. Daily Reward</th>
                                         </tr>
                                     </thead>
@@ -280,6 +286,8 @@ export function RewardCalculator() {
                                         {res.spreads.map((spread, sIdx) => (
                                             <tr key={sIdx} className="border-b border-white/5 last:border-0">
                                                 <td className="py-3 text-white font-medium">{spread.label}</td>
+                                                <td className="py-3 text-gray-300">${spread.bidDepth.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                                                <td className="py-3 text-gray-300">${spread.askDepth.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                                                 <td className="py-3 text-gray-300">${spread.depth.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                                                 <td className="py-3 text-blue-400 font-bold text-base">${spread.reward.toFixed(2)}</td>
                                             </tr>
