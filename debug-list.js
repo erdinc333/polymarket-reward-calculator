@@ -8,10 +8,10 @@ async function test() {
 
         console.log(`Found ${data.length} events.`);
 
-        const muskEvents = data.filter(e => e.title.toLowerCase().includes("musk") || e.slug.toLowerCase().includes("musk"));
+        const trumpEvents = data.filter(e => e.title.toLowerCase().includes("trump") || e.slug.toLowerCase().includes("trump"));
 
-        console.log(`Found ${muskEvents.length} Musk events:`);
-        muskEvents.forEach(e => {
+        console.log(`Found ${trumpEvents.length} Trump events:`);
+        trumpEvents.forEach(e => {
             console.log(`- Title: ${e.title}`);
             console.log(`  Slug: ${e.slug}`);
         });
