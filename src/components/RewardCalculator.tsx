@@ -164,8 +164,10 @@ export function RewardCalculator() {
                     const midPrice = (bestBid + bestAsk) / 2 || price; // Fallback to market price
 
                     for (const spreadConfig of spreadConfigs) {
-                        const minBidPrice = midPrice * (1 - spreadConfig.percent);
-                        const maxAskPrice = midPrice * (1 + spreadConfig.percent);
+                        // Use additive spread (e.g. 0.01 = 1 cent)
+                        // This handles low priced tokens better than percentage
+                        const minBidPrice = midPrice - spreadConfig.percent;
+                        const maxAskPrice = midPrice + spreadConfig.percent;
 
                         const validBids = bids.filter(b => b.price >= minBidPrice);
                         const validAsks = asks.filter(a => a.price <= maxAskPrice);
